@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from typing import List, Dict, Any, Optional
-
+from pathlib import Path
+import streamlit as st
 import gspread
 from gspread.exceptions import WorksheetNotFound
 from google.oauth2.service_account import Credentials
@@ -13,14 +14,37 @@ from google.oauth2.service_account import Credentials
 # Konfiguration & client
 # ---------------------------------------------------------
 @lru_cache(maxsize=1)
-def load_config() -> dict:
-    with open("config.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+def load_config() -> Dict[str, Any]:
+    """
+    Cloud: bruger st.secrets
+    Lokalt: bruger config.json hvis den findes
+    """
+    # 1) Streamlit Cloud (secrets findes)
+    if hasattr(st, "secrets") and "app" in st.secrets:
+        return dict(st.secrets["app"])
 
+    # 2) Lokalt fallback
+    cfg_path = Path("config.json")
+    if cfg_path.exists():
+        return json.loads(cfg_path.read_text(encoding="utf-8"))
+
+    raise FileNotFoundError(
+        "Mangler config. Opret config.json lokalt eller sæt [app] i Streamlit Secrets."
+    )
 
 @lru_cache(maxsize=1)
 def get_gsheet_client() -> gspread.client.Client:
     cfg = load_config()
+
+    # Cloud: brug secrets
+    if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+        creds = Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        )
+        return gspread.authorize(creds)
+
+    # Lokalt: brug filsti fra config.json
     creds = Credentials.from_service_account_file(
         cfg["service_account_file"],
         scopes=["https://www.googleapis.com/auth/spreadsheets"],
